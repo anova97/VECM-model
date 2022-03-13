@@ -1,0 +1,268 @@
+---
+title: "Model VECM"
+author: "Jakub Augustynek"
+date: "1/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Podstawowym etapem budowy modelu VAR jest sprawdzenie stacjonarności zmiennych, w przypadku braku stacjonarności konieczne jest przekształcenie modelu przez np. obliczenie przyrostów. Tak oszacowany model informuje tylko o zależnościach krótkoterminowych. Johansen zaproponował, by **badać długokokresową relację** między zmiennymi za pomocą modelu VAR uzupełnionego o **składnik korekty błędem** wyrażający długookresową relację pomiędzy zmiennymi niestacjonarnymi. Oznacza to przekształcenie modelu VAR do postaci wektorowego modelu korekty błędem **VECM**.  
+
+Model zbudowany będzie dla wartości zamknięcia podanych indeksów giełdowych:
+<ul> 
+<li> **DAX**  - niemiecki indeks akcji </li>
+<li> **FTSE** -  brytyjski indeks akcji </li>
+<li> **SHC** - chiński indeks giełdowy </li>
+<li> **SPX** - amerykański indeks giełdowy </li>
+<li> **WIG20** - polski indeks giełdowy </li>
+</ul>
+
+<br>
+
+## Przygotowanie danych
+
+W projekcie tym wykorzystano dane użyte w poprzednim projekcie. Zostały pobrane ze strony (https://stooq.pl). Pobrano dzienne dane historyczne indeksów od stycznia 2010 roku do grudnia 2019. 
+
+```{r dane, message=FALSE, warning=FALSE}
+library(readr)
+library(kableExtra)
+library(dplyr)
+dax <- read_csv("data/^dax_d.csv")
+dax<-dax[,c(1,5)]
+ftse <- read_csv("data/^ftm_d.csv")
+ftse<-ftse[,c(1,5)]
+shc <- read_csv("data/^shc_d.csv")
+shc<-shc[,c(1,5)]
+spx <- read_csv("data/^spx_d.csv")
+spx<-spx[,c(1,5)]
+wig20 <- read_csv("data/wig20_d.csv")
+wig20<-wig20[,c(1,5)]
+```
+
+Dane uporządkowano połączono w jeden data frame według daty. 
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+#utworzenie jednego data frame, NA w miejscu braku obserwacji
+daxFTSE<-full_join(dax, ftse, by="Data")
+dfs<-full_join(daxFTSE, shc, by="Data")
+dfss<-full_join(dfs, spx, by="Data")
+dfssw<-full_join(dfss, wig20, by="Data")
+
+data<-dfssw
+colnames(data)<-c("Data", "DAX", "FTSE", "SHC", "SPX", "WIG20")
+#sum(is.na(data))
+data<-arrange(data, Data)
+```
+
+Ponieważ występowały braki danych, zastosowano **interpolację liniową**. W interpolacji używana jest ostatnia ważna wartość przed brakiem danych oraz pierwsza ważna za brakiem. Jeśli braki danych występują w pierwszej lub ostatniej obserwacji w serii, nie są one zastępowane. Użyta do tego została funkcja *na.approx*. 
+
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+library(zoo)
+#interpolacja
+DAX_no_NA<-na.approx(data$DAX, na.rm = FALSE)
+FTSE_no_NA<-na.approx(data$FTSE, na.rm = FALSE)
+SHC_no_NA<-na.approx(data$SHC, na.rm = FALSE)
+SPX_no_NA<-na.approx(data$SPX, na.rm = FALSE)
+WIG20_no_NA<-na.approx(data$WIG20, na.rm = FALSE)
+
+daneN<-data.frame("Data"=data$Data, "DAX"=DAX_no_NA, "FTSE"=FTSE_no_NA,
+                  "SHC"=SHC_no_NA, "SPX"=SPX_no_NA, "WIG20"=WIG20_no_NA)
+#brak 4 ostatnich wartości w FTSE, usuwam te obserwacje
+daneN<-daneN[1:2585,]
+#head(daneN)
+```
+
+Wykorzystano wartości zamknięcia indeksów giełdowych. W celu wygładzenia danych, zlogarytmowano je. 
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+daneL<-data.frame(0)
+daneL <- data.frame(daneN$Data[1: nrow(daneN)])
+
+
+for(i in 1:(nrow(daneN)))
+{
+ daneL[,2]=log(daneN$DAX)
+ daneL[,3]=log(daneN$FTSE)
+ daneL[,4]=log(daneN$SHC)
+ daneL[,5]=log(daneN$SPX)
+ daneL[,6]=log(daneN$WIG20)
+ 
+}
+colnames(daneL)<-c("Data", "DAX", "FTSE", "SHC", "SPX", "WIG20")
+daneL %>% 
+        kable() %>%
+        kable_styling(bootstrap_options = c('striped', 'condensed')) %>%
+        scroll_box(height = "200px")
+```
+
+
+
+## Badanie stacjonarności zmiennych
+
+Wstępne badanie, czy zjawisko należy do szeregów stacjonarnych, czy niestacjonarnych można przeprowadzić na podstawie analizy wykresów. Należy zwrócić uwagę, czy wartości szeregu wyraźnie rosną, lub maleją, może to świadczyć o tym, że proces jest niestacjonarny. 
+
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+library(ggplot2)
+daneW<-data.frame("Data"=rep(daneL$Data,5), "Wartosc"=c(daneL$DAX, daneL$FTSE, daneL$SHC, daneL$SPX, daneL$WIG20), 
+                  "Indeks"=c(rep("DAX", 2585), rep("FTSE", 2585), rep("SHC", 2585), rep("SPX", 2585), rep("WIG20", 2585)))
+
+
+p<-ggplot(aes(x=Data, y=Wartosc), data =daneW)+geom_line()
+
+p+facet_wrap(.~Indeks)
+```
+<br>
+
+Na powyższych wykresach można zauważyć, że indeksy DAX, FTSE, SPX rosną, wskazuje to na ich niestacjonarność. 
+
+
+## Następnie przeprowadzony zostanie test ADF.
+
+Jego hipotezy są następujące:     
+
+**H0: Niestacjonarność zmiennej ** <br>
+
+
+**H1: Stacjonarność zmiennej **
+
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+library(tseries)
+adf.test(daneL$DAX,alternative = c("stationary"))
+adf.test(daneL$FTSE,alternative = c("stationary"))
+adf.test(daneL$SHC,alternative = c("stationary"))
+adf.test(daneL$SPX,alternative = c("stationary"))
+adf.test(daneL$WIG20,alternative = c("stationary"))
+#dla DAX, SHC, WIG20  p-value większe od poziomu istotoności,
+#brak podstaw do odrzucenia hipotezy zerowej mówiącej, o niestacjonarnosci
+#niestacjonarnosc moze swiadczyc o wystepowaniu zaleznosci dlugookresowej
+```
+
+Wartości p przeprowadzonych testów dla indeksu DAX, SHC, WIG20 są znacząco większe, niż poziom istotności nie ma więc podstaw do odrzucenia hipotezy zerowej. Zmienne są niestacjonarne. W przypadku indeksu FTSE i SPX wynik okazał się niejednoznaczny, zależał od przyjętego poziomu istotności. Zmienne te można uznać także jako niestacjonarne. 
+
+
+## Wybór rzędu opóźnień
+
+Przy pomocy funkcji VARselect wybrany zostanie odpowiedni rząd opóźnień. Oblicza ona cztery kryteria informacyjne: Akaike’a **AIC**, Hannana i Quinna **HQ**, Schwartza **SC** oraz Final Prediction Error **FPE**. 
+
+```{r,  message=FALSE, warning=FALSE}
+library(vars)
+VARselect(daneL[,2:6])
+```
+
+Według dwóch kryteriów odpowiedni rząd opóźnień to 2, natomiast według pozostałych dwóch kryteriów: 3. 
+W celu wyboru odpowiedniego **tworzę dwa modele, testuję w nich stacjonarność i autokorelację**. Na podstawie przeprowadzonych testów wybiorę, który rząd opóźnienia będzie odpowiedniejszy. 
+
+## Badanie stacjonarności reszt modelu VAR(3) 
+By móc interpretować istotność zmiennych, reszty z modelu VAR muszą być stacjonarne. Testuję stacjonarność za pomocą testu adf.
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+var3 <- VAR(daneL[,2:6], p=3)
+reszty3<-data.frame(DAX=var3$varresult$DAX$residuals)
+
+#reszty$DAX<-var2$varresult$DAX$residuals
+reszty3$FTSE<-var3$varresult$FTSE$residuals
+reszty3$SHC<-var3$varresult$SHC$residuals
+reszty3$SPX<-var3$varresult$SPX$residuals
+reszty3$WIG20<-var3$varresult$WIG20$residuals
+
+
+adf.test(reszty3$DAX,alternative = c("stationary"))
+adf.test(reszty3$FTSE,alternative = c("stationary"))
+adf.test(reszty3$SHC,alternative = c("stationary"))
+adf.test(reszty3$SPX,alternative = c("stationary"))
+adf.test(reszty3$WIG20,alternative = c("stationary"))
+```
+
+Dla każdego przeptowadzonego testu p -value jest mniejsze od poziomu istotności, odrzucamy hipotezę zerową mówiącą o niestacjonarności. **Reszty są stacjonarne**.
+
+## Sprawdzanie autokorelacji modelu VAR zbudowanego na resztach
+
+W celu przetestowania występowania autokorelacji krzyżowej użyta zostanie funkcja serial.test, test Breuscha-Godfreya. Funkcja ta jako argument przyjmuje model, dlatego by móc sprawdzić autokorelację krzyżową reszt, **zbudowany został model VAR dla reszt z poprzedniego modelu VAR.**  
+
+Hipotezy testu Breuscha-Godfreya są następujące:     
+
+**H0: Autokorelacja reszt nie wystepuje ** 
+
+
+**H1: Autokorelcja reszt jest istotna statystycznie **
+
+```{r,  message=FALSE, warning=FALSE}
+VAR3reszt<-VAR(reszty3, p=1)
+serial.test(VAR3reszt, lags.bg = 6, type = "BG")
+```
+
+W przeprowadzonym teście wartość p jest większa niż poziom istotności, brak podstaw do odrzucenia hipotezy zerowej. **Autokorelacja reszt nie występuje**. Autokorelacja reszt w modelu VAR z opóźnieniem 3 rzędu nie występuje aż do 6 opóźnienia, dla modelu z opóźnieniem rzędu 2 już przy trzecim opóźnieniu występuje autkorelacja, dlatego wybieram model VAR(3). 
+
+
+## Test Johansena
+Badanie kointegracji szeregów czasowych przeprowadzono za pomocą testu Johansena: testu maksymalnej wartości własnej i testu śladu. W teście tym hipoteza zerowa jest następująca:
+
+**H0: Brak kointegracji rzędu r** 
+
+
+**H1: Występowanie kointegracji**
+```{r,  message=FALSE, warning=FALSE}
+#test johansena w celu sprawdzenia kointegracji
+j1<-ca.jo(daneL[,2:6], type = "eigen")
+j2<-ca.jo(daneL[,2:6], type="trace")
+summary(j1)
+summary(j2)
+```
+
+
+
+W obu testach dla r=0 wartość statystyki testowej jest większa od wartości krytycznej dla poziomu istotności 0,05, odrzucamy hipotezę zerową, występuje jedna stabilna relacja kointegrująca. 
+
+## Budowa modelu VECM
+Zbudowany został model VECM z 2 opóźnieniami (model VECM buduje się z opóźnieniami mniejszymi o 1 niż w modelu VAR) i jedną relacją kointegrującą. 
+
+
+```{r,  message=FALSE, warning=FALSE}
+library(tsDyn)
+vecm<-VECM(daneL[,2:6], lag=2, r=1)
+summary(vecm)
+```
+
+Oceny parametrów składnika korekty błędem ECT są ujemne we wszystkich równaniach modelu VECM, oprócz indeksu chińskiego. Najsilniejsza korekta odchylenia od długookresowej równowagi występuje w przypadku równania, w którym modelowana jest zmienna DAX.  Około 1% nierównowagi od długookresowej ścieżki wzrostu jest korygowane przez krótkookresowy proces dostosowań, podobnie dla indeksu SHC, tylko wartość jest istotna. 
+
+## Szacowanie wpływu indeksu SPX na pozostałe indeksy giełdowe
+Dla wyestymowanego modelu VECM za pomocą funkcji reakcji na bodziec szacowany będzie wpływ jednego sektora na drugi. 
+Jako impuls wybrany został indeks SPX, ponieważ jest to jeden z najbardziej znanych i wpływowych indeksów na świecie. Jego wpływ na badane w tym projekcie indeksy może być znaczący. 
+
+### wpływ na indeks DAX
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+plot(irf(vecm, impulse = "SPX", response = c("DAX"), boot =FALSE))
+```
+
+
+Wpływ indeksu SPX na indeks DAX gwałtownie rośnie, w drugim dniu osiąga wartość maksymalną, a następnie lekko spada i się stabilizuje. 
+
+### wpływ na indeks FTSE
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+plot(irf(vecm, impulse = "SPX", response = c("FTSE"), boot =FALSE))
+```
+
+
+Wpływ indeksu SPX na indeks FTSE gwałtownie rośnie, w trzecim dniu osiąga wartość maksymalną, następnie w czwartym lekko spada i się stabilizuje. Wpływ indeksu nowojorskiego na indeks londyśnki jest najmniejszy ze wszystkich analizowanych indeksów. Widać to po przyjmowanych wartościach. 
+
+### wpływ na indeks SHC
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+plot(irf(vecm, impulse = "SPX", response = c("SHC"), boot =FALSE))
+```
+
+
+Wpływ indeksu SPX na indeks SHC gwałtownie rośnie, w trzecim dniu osiąga wartość maksymalną, następnie w czwartym minimalnie spada i się stabilizuje. 
+
+### wpływ na indeks WIG20
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+plot(irf(vecm, impulse = "SPX", response = c("WIG20"), boot =FALSE))
+
+```
+
+
+Wpływ indeksu SPX na indeks WIG20 gwałtownie rośnie, w trzecim dniu osiąga wartość maksymalną, następnie w czwartym spada i się stabilizuje. Wpływ na indeks WIG20 jest największy.
+
+
+
+

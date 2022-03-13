@@ -1,0 +1,207 @@
+library(readr) 
+dax <- read_csv("~/Downloads/^dax_d.csv")
+dax<-dax[,c(1,5)]
+ftse <- read_csv("~/Downloads/ftse.csv")
+ftse<-ftse[,c(1,5)]
+shc <- read_csv("~/Downloads/^shc_d.csv")
+shc<-shc[,c(1,5)]
+spx <- read_csv("~/Downloads/^spx_d.csv")
+spx<-spx[,c(1,5)]
+wig20 <- read_csv("~/Downloads/wig20_d-2.csv")
+wig20<-wig20[,c(1,5)]
+
+
+#merge(dax, wig20, by=dax$Data)
+
+#utworzenie jednego data frame, na w miejscu braku obserwacji
+library(dplyr)
+
+daxFTSE<-full_join(dax, ftse, by="Data")
+dfs<-full_join(daxFTSE, shc, by="Data")
+dfss<-full_join(dfs, spx, by="Data")
+dfssw<-full_join(dfss, wig20, by="Data")
+
+data<-dfssw
+colnames(data)<-c("Data", "DAX", "FTSE", "SHC", "SPX", "WIG20")
+sum(is.na(data))
+
+data<-arrange(data, Data)
+sum(is.na(data))
+
+#interpolacja
+library(zoo)
+
+
+DAX_no_NA<-na.approx(data$DAX, na.rm = FALSE)
+FTSE_no_NA<-na.approx(data$FTSE, na.rm = FALSE)
+SHC_no_NA<-na.approx(data$SHC, na.rm = FALSE)
+SPX_no_NA<-na.approx(data$SPX, na.rm = FALSE)
+WIG20_no_NA<-na.approx(data$WIG20, na.rm = FALSE)
+
+
+daneN<-data.frame("Data"=data$Data, "DAX"=DAX_no_NA, "FTSE"=FTSE_no_NA, "SHC"=SHC_no_NA, "SPX"=SPX_no_NA, "WIG20"=WIG20_no_NA)
+
+daneN<-daneN[1:2585,]
+sum(is.na(daneN))
+
+daneL<-data.frame(0)
+daneL <- data.frame(daneN$Data[1: nrow(daneN)])
+
+
+for(i in 1:(nrow(daneN)))
+{
+ daneL[,2]=log(daneN$DAX)
+ daneL[,3]=log(daneN$FTSE)
+ daneL[,4]=log(daneN$SHC)
+ daneL[,5]=log(daneN$SPX)
+ daneL[,6]=log(daneN$WIG20)
+ 
+}
+daneL
+colnames(daneL)<-c("Data", "DAX", "FTSE", "SHC", "SPX", "WIG20")
+
+sum(is.na(daneL))
+
+#zbadanie stacjonarności
+library(tseries)
+adf.test(daneL$DAX,alternative = c("stationary"))
+adf.test(daneL$FTSE,alternative = c("stationary"))
+adf.test(daneL$SHC,alternative = c("stationary"))
+adf.test(daneL$SPX,alternative = c("stationary"))
+adf.test(daneL$WIG20,alternative = c("stationary"))
+#dla DAX, SHC, WIG20  p-value większe od poziomu istotoności,
+#brak podstaw do odrzucenia hipotezy zerowej mówiącej, o niestacjonarnosci
+#niestacjonarnosc moze swiadczyc o wystepowaniu zaleznosci dlugookresowej
+
+
+library(vars)
+VARselect(daneL[,2:6])
+
+var2 <- VAR(daneL[,2:6], p=2)
+var2
+
+#H0: Autokorelacja reszt nie wystepuje
+#H1: Autokorelcja wystepuje
+
+Box.test(var2$varresult$DAX$residuals, lag =2, type=c("Ljung-Box"))
+Box.test(var2$varresult$FTSE$residuals, lag =2, type=c("Ljung-Box"))
+Box.test(var2$varresult$SHC$residuals, lag =2, type=c("Ljung-Box"))
+Box.test(var2$varresult$SPX$residuals, lag =2, type=c("Ljung-Box"))
+Box.test(var2$varresult$WIG20$residuals, lag =2, type=c("Ljung-Box"))
+
+#p-value większe od poziomu istotoności, brak podstaw do odrzucenia hipotezy zerowej mówiącej, o braku autokorelacji
+
+reszty<-data.frame(DAX=var2$varresult$DAX$residuals)
+
+#reszty$DAX<-var2$varresult$DAX$residuals
+reszty$FTSE<-var2$varresult$FTSE$residuals
+reszty$SHC<-var2$varresult$SHC$residuals
+reszty$SPX<-var2$varresult$SPX$residuals
+reszty$WIG20<-var2$varresult$WIG20$residuals
+
+adf.test(reszty$DAX,alternative = c("stationary"))
+adf.test(reszty$FTSE,alternative = c("stationary"))
+adf.test(reszty$SHC,alternative = c("stationary"))
+adf.test(reszty$SPX,alternative = c("stationary"))
+adf.test(reszty$WIG20,alternative = c("stationary"))
+#p-value mniejsze od poziomu istotoności, odrzucamy hipotezę zerową mówiącą, o niestacjonarnosci
+#sprawdź stacjonarność reszt najpierw 
+
+VARreszt<-VAR(reszty, p=1)
+serial.test(VARreszt, lags.bg = 6, type = "BG")
+
+
+var3 <- VAR(daneL[,2:6], p=3)
+reszty3<-data.frame(DAX=var3$varresult$DAX$residuals)
+
+#reszty$DAX<-var2$varresult$DAX$residuals
+reszty3$FTSE<-var3$varresult$FTSE$residuals
+reszty3$SHC<-var3$varresult$SHC$residuals
+reszty3$SPX<-var3$varresult$SPX$residuals
+reszty3$WIG20<-var3$varresult$WIG20$residuals
+
+
+adf.test(reszty3$DAX,alternative = c("stationary"))
+adf.test(reszty3$FTSE,alternative = c("stationary"))
+adf.test(reszty3$SHC,alternative = c("stationary"))
+adf.test(reszty3$SPX,alternative = c("stationary"))
+adf.test(reszty3$WIG20,alternative = c("stationary"))
+#p-value mniejsze od poziomu istotoności, odrzucamy hipotezę zerową mówiącą, o niestacjonarnosci
+
+VAR3reszt<-VAR(reszty3, p=1)
+serial.test(VAR3reszt, lags.bg = 5, type = "BG")
+
+VAR3reszt<-VAR(reszty3, p=1)
+serial.test(VAR3reszt, lags.bg = 6, type = "BG")
+
+#wybieram model VAR3, 
+#przetestowana została stacjonarność, 
+#reszty są stacjonarne dlatego możemy interpretować parametry modelu VAR zbudowanego na resztach
+#reszty są stacjonarne aż do 10 opóźnienia
+
+#test johansena w celu sprawdzenia kointegracji
+j1<-ca.jo(daneL[,2:6], type = "eigen")
+j2<-ca.jo(daneL[,2:6], type="trace")
+summary(j1)
+summary(j2)
+#porównujesz wartość statystyki testowej 
+#w tescie johansena hipoteza zerowa o braku kointegracji została odrzucona
+
+#test wskazuje wystepowanie 1 silnej relacji kointegrujacej
+
+#budowa modelu VECM - modelu VAR uzupelnionego o tzw składnik korekty błędem
+library(tsDyn)
+vecm<-VECM(daneL[,2:6], lag=2, r=1)
+
+vecm<-lineVar(daneL[,2:6], lag=2, r=1, model = "VECM")
+
+SVEC(j2)
+vecm
+summary(vecm)
+summary(vecm)
+#ECT- alfa
+
+coefA(vecm)
+coefB(vecm)
+
+vecm
+summary(vecm)
+
+plot(irf(vecm, impulse = "SPX", response = c("DAX"), boot =FALSE))
+
+plot(irf(vecm, impulse = "FTSE", response = c("SPX"), boot =FALSE))
+
+plot(irf(vecm, impulse = "SPX", response = c("SHC"), boot =FALSE))
+
+plot(irf(vecm, impulse = "DAX", response = c("WIG20"), boot =FALSE))
+
+plot(irf(vecm, impulse = "SPX", response = c("WIG20"), boot =FALSE))
+
+
+
+
+
+
+plot(irf(vecm, impulse = "FTSE", response = c("SPX"), boot =FALSE))
+
+library(ggplot2)
+
+plot(daneL$Data, daneL$DAX)
+
+daneW<-data.frame("Data"=rep(daneL$Data,5), "Wartosc"=c(daneL$DAX, daneL$FTSE, daneL$SHC, daneL$SPX, daneL$WIG20), 
+                  "Indeks"=c(rep("DAX", 2585), rep("FTSE", 2585), rep("SHC", 2585), rep("SPX", 2585), rep("WIG20", 2585)))
+
+
+p<-ggplot(aes(x=Data, y=Wartosc), data =daneW)+geom_line()
+
+p+facet_wrap(.~Indeks)
+
+ggplot(aes(x=Data, y=DAX), data =daneL)+geom_line()
+ggplot(aes(x=Data, y=FTSE), data =daneL)+geom_line()
+ggplot(aes(x=Data, y=SHC), data =daneL)+geom_line()
+
+ggplot(aes(x=Data, y=WIG20), data =daneL)+geom_line()
+
+
+
+

@@ -1,0 +1,83 @@
+#Johansen (1988), zajmuj?cy si? zagadnieniem kointegracji, zaproponowa?
+#jednak, aby bada? d?ugookresow? r?wnowag? pomi?dzy zmiennymi za
+#pomoc? modelu VAR. Jest to mo?liwe, je?li model ten zostanie uzupe?niony
+#o tzw. sk?adnik korekty b??dem, wyra??j?cy d?ugookresow? relacj? (r?wnowag?)
+#pomi?dzy zmiennymi niestacjonarnymi. Co oznacza przekszta?cenie
+#modelu VAR do postaci wektorowego modelu korekty b??dem VECM
+
+
+install.packages("zoo")
+install.packages("vars")
+install.packages("tsDyn")
+library(zoo)
+library(vars)
+library(tsDyn)
+
+setwd("D:/Adrian/Studia/7 semestr/Analiza Wielowymiarowa/Projekty zaliczeniowe/Projekt_3")
+
+x1 <- read.csv("f_fin_d.csv",sep=",", dec = ".", header = T)
+x1<-x1[,-(2:4)]
+x1<-x1[,-(3)]
+x2 <- read.csv("p_bud_d.csv",sep=",", dec = ".", header = T)
+x2<-x2[,-(2:4)]
+x2<-x2[,-(3)]
+x3 <- read.csv("p_drz_d.csv",sep=",", dec = ".", header = T)
+x3<-x3[,-(2:4)]
+x3<-x3[,-(3)]
+x4 <- read.csv("u_inf_d.csv",sep=",", dec = ".", header = T)
+x4<-x4[,-(2:4)]
+x4<-x4[,-(3)]
+
+logarytmy <- matrix(0,1985,4)
+m1 = merge(x1, x2, by = "Data", incomparables = NA, all.x  = TRUE)
+m2 = merge(m1, x3, by = "Data", incomparables = NA, all.x  = TRUE)
+dane = merge(m2, x4, by = "Data", incomparables = NA, all.x  = TRUE)
+
+colnames(dane) <- c("Data","x1","x2","x3","x4")
+colnames(logarytmy) <- c("x1","x2","x3","x4")
+for (i in 3:5)
+{
+  dane[,i] <- na.approx(dane[,i])
+}
+
+#logarytmowanie danych - pozwala na ich "wygladzenie"
+
+for (i in 1:1985)
+{
+  logarytmy[i,1] <- log(dane[i,2])
+  logarytmy[i,2] <- log(dane[i,3])
+  logarytmy[i,3] <- log(dane[i,4])
+  logarytmy[i,4] <- log(dane[i,5])
+ 
+}
+#niestacjonarnosc moze swiadczyc o wsytepowaniu zale?no?ci d?ugookresowej
+adf.test(logarytmy[,1],alternative = c("stationary"))
+adf.test(logarytmy[,2],alternative = c("stationary"))
+adf.test(logarytmy[,3],alternative = c("stationary"))
+adf.test(logarytmy[,4],alternative = c("stationary"))
+
+#O skointegrowaniu zmiennych mowa, kiedy
+#zmienne wyst?puj?ce w modelu s? niestacjonarne, jednak liniowe kombinacje tych zmiennych s? stacjonarne.
+#Natomiast wyznaczenie wektor?w
+#kointegruj?cych w modelu mo?e da? podstawy do twierdzenia o istnieniu
+#d?ugookresowych zwi?zk?w przyczynowo-skutkowych pomi?dzy zmiennymi modelu
+
+VARselect(logarytmy)
+#test Johansena - do sprawdzenia stopnia kointegracji - co sie pozniej wykorzystuje w modelu VECM
+jotest<-ca.jo(logarytmy,type="eigen",K = 4,ecdet = "none",spec = "longrun") #test najwi?kszej warto?ci w?asnej
+jotest<-ca.jo(logarytmy,type="trace",K = 4,ecdet = "none",spec = "longrun") #test ?ladu
+summary(jotest)
+
+#Odrzucenie H0 oznacza, ?e istnieje przynajmniej jeden wektor kointegruj?cy.
+
+#test wzkauje wystepowanie 1 silnych relacji kointegrujacych
+#budowa modelu VECM - jest to model VAR uzupelniow o tzw. sk?adnik korekty b??dem
+model_VECM<-VECM(logarytmy, lag = 2, r=1, estim = "ML")
+summary(model_VECM)
+
+#jak jeden sektor wplywa na drugi
+plot(irf(model_VECM, impulse = "x1", response = c("x4"), boot =FALSE))
+plot(irf(model_VECM, impulse = "x1", response = c("x3"), boot =FALSE))
+plot(irf(model_VECM, impulse = "x2", response = c("x3"), boot =FALSE))
+
+

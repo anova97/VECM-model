@@ -1,0 +1,62 @@
+install.packages("zoo")
+install.packages("vars")
+install.packages("tsDyn")
+library(zoo)
+library(vars)
+library(tsDyn)
+
+
+finanse <- read.csv("~/Downloads/pr3_analiza wielowymiarowa/f_fin_d.csv")
+budow <- read.csv("~/Downloads/pr3_analiza wielowymiarowa/p_bud_d.csv")
+drew <- read.csv("~/Downloads/pr3_analiza wielowymiarowa/p_drz_d.csv")
+IT <- read.csv("~/Downloads/pr3_analiza wielowymiarowa/u_inf_d.csv")
+
+x1 <- read.csv("~/Downloads/pr3_analiza wielowymiarowa/f_fin_d.csv",sep=",", dec = ".", header = T)
+x1<-x1[,-(2:4)]
+x1<-x1[,-(3)]
+x2 <- read.csv("~/Downloads/pr3_analiza wielowymiarowa/p_bud_d.csv",sep=",", dec = ".", header = T)
+x2<-x2[,-(2:4)]
+x2<-x2[,-(3)]
+x3 <- read.csv("~/Downloads/pr3_analiza wielowymiarowa/p_drz_d.csv",sep=",", dec = ".", header = T)
+x3<-x3[,-(2:4)]
+x3<-x3[,-(3)]
+x4 <- read.csv("~/Downloads/pr3_analiza wielowymiarowa/u_inf_d.csv",sep=",", dec = ".", header = T)
+x4<-x4[,-(2:4)]
+x4<-x4[,-(3)]
+
+logarytmy <- matrix(0,1985,4)
+m1 = merge(x1, x2, by = "Data", incomparables = NA, all.x  = TRUE)
+m2 = merge(m1, x3, by = "Data", incomparables = NA, all.x  = TRUE)
+dane = merge(m2, x4, by = "Data", incomparables = NA, all.x  = TRUE)
+
+colnames(dane) <- c("Data","x1","x2","x3","x4")
+colnames(logarytmy) <- c("x1","x2","x3","x4")
+for (i in 3:5)
+{
+  dane[,i] <- na.approx(dane[,i])
+}
+
+#logarytmowanie danych
+
+for (i in 1:1985)
+{
+  logarytmy[i,1] <- log(dane[i,2])
+  logarytmy[i,2] <- log(dane[i,3])
+  logarytmy[i,3] <- log(dane[i,4])
+  logarytmy[i,4] <- log(dane[i,5])
+ 
+}
+
+
+#test Johansena - do sprawdzenia stopnia kointegracji - co sie pozniej wykorzystuje w modelu VECM
+jotest<-ca.jo(logarytmy,type="eigen",K = 4,ecdet = "none",spec = "longrun")
+summary(jotest)
+
+#budowa modelu VECM
+model_VECM<-VECM(logarytmy, lag = 1, r=2)
+summary(model_VECM)
+
+#jak jeden sektor wplywa na drugi
+plot(irf(model_VECM, impulse = "x1", response = c("x4"), boot =FALSE))
+
+

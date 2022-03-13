@@ -1,0 +1,27 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1579867504172.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "5493A1A4",
+    "lastKnownWriteTime" : 1647184010,
+    "last_content_update" : 1647184010232,
+    "path" : "~/Documents/GitHub/VECM model/VECM.Rmd",
+    "project_path" : "VECM.Rmd",
+    "properties" : {
+        "cursorPosition" : "12,478",
+        "last_setup_crc32" : "",
+        "scrollLine" : "1",
+        "tempName" : "Untitled1"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 5,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}
